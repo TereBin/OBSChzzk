@@ -12,9 +12,9 @@ using System.Windows.Forms;
 using Microsoft.Win32;
 using System.Reflection;
 
-[assembly: AssemblyVersion("1.1.9.0")]
-[assembly: AssemblyFileVersion("1.1.9.0")]
-[assembly: AssemblyInformationalVersion("1.1.9")]
+[assembly: AssemblyVersion("1.1.10.0")]
+[assembly: AssemblyFileVersion("1.1.10.0")]
+[assembly: AssemblyInformationalVersion("1.1.10")]
 
 class Plugin {
     public string Name, Repo, Description, Dll, Help;
@@ -28,7 +28,7 @@ class Release {
     public long Size;
 }
 static class Program {
-    public const string AppVersion="1.1.9";
+    public const string AppVersion="1.1.10";
     static readonly Plugin Self=new Plugin { Name="OBSChzzk",Repo="OBSChzzk" };
     static string SkipFile { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"OBSChzzk","skipped-installer-version.txt"); } }
     public static bool ShouldOfferUpdate(string current,string latest,string skipped) {
@@ -134,7 +134,7 @@ static class Program {
     }
     static readonly Plugin[] Plugins = {
         new Plugin { Name="OBSChzzkLiveEditor", Repo="OBSChzzkLiveEditor-Releases", Description="OBS 도크에서 치지직 방송 제목·카테고리·태그를 수정합니다.", Dll="OBSChzzkLiveEditor.dll", Help="LiveEditor: OBS 도크 메뉴에서 열고 로그인하세요." },
-        new Plugin { Name="OBSChzzkEvent", Repo="OBSChzzkEvent-Releases", Description="치지직 신규 팔로우를 감지해 화면과 소리로 알립니다.", Dll="obs-chzzk-alerts.dll", Help="Event: 브라우저 확장을 등록하거나 새로고침하세요.\r\ndata\\obs-plugins\\obs-chzzk-alerts\\browser-relay" },
+        new Plugin { Name="OBSChzzkEvent", Repo="OBSChzzkEvent-Releases", Description="치지직 신규 팔로우를 감지해 화면과 소리로 알립니다.", Dll="obs-chzzk-alerts.dll", Help="Event: Chrome/Edge에서 웹 스토어 확장을 설치하세요. 기존 개발자 모드 설치본은 비활성화하거나 제거하세요." },
         new Plugin { Name="OBSChzzkPing", Repo="OBSChzzkPing-Release", Description="방송 시작 시 Discord에 알리고, 방송 정보가 담긴 X 작성창을 엽니다.", Dll="streamping.dll", Help="Ping: OBS 도구 메뉴에서 채널과 알림을 설정하세요." }
     };
     static readonly HttpClient Client = CreateClient();
@@ -406,24 +406,23 @@ static class Program {
                     guides.Controls.Add(link);
                 }
                 if (selected.Any(p=>p.Name=="OBSChzzkEvent")) {
-                    string extensionPath=Path.Combine(obs,@"data\obs-plugins\obs-chzzk-alerts\browser-relay");
+                    const string storeUrl="https://chromewebstore.google.com/detail/pakicliihbiimebagjgmmjkalfpejikc?hl=ko";
                     int top=36+selected.Length*27;
                     guides.Controls.Add(new Label { Left=4,Top=top,Width=625,Height=40,
-                        Text="Event는 브라우저 확장 등록이 필요합니다. Chrome/Edge의 확장 프로그램에서\r\n개발자 모드 → 압축해제된 확장 프로그램 로드 → 아래 폴더를 선택하세요." });
-                    var folderLink=new LinkLabel { Left=4,Top=top+41,Width=625,Height=40,
-                        Text="확장 프로그램 폴더 열기\r\n"+extensionPath };
-                    folderLink.Links.Clear();
-                    folderLink.Links.Add(0,folderLink.Text.Length);
-                    folderLink.LinkClicked += (sender,ev) => {
+                        Text="Event 확장은 Chrome/Edge에서 웹 스토어로 설치하세요. 이미 설치했다면 유지하세요.\r\n기존 개발자 모드 설치본은 비활성화하거나 제거하고 스토어 설치본만 사용하세요." });
+                    var storeLink=new LinkLabel { Left=4,Top=top+41,Width=625,Height=40,
+                        Text="Event 브라우저 확장 프로그램 설치 (Chrome 웹 스토어)" };
+                    storeLink.Links.Clear();
+                    storeLink.Links.Add(0,storeLink.Text.Length);
+                    storeLink.LinkClicked += (sender,ev) => {
                         try {
-                            if (!Directory.Exists(extensionPath)) throw new DirectoryNotFoundException("확장 프로그램 폴더가 없습니다: "+extensionPath);
-                            Process.Start(new ProcessStartInfo("explorer.exe","\""+extensionPath+"\"") { UseShellExecute=true });
-                            folderLink.LinkVisited=true;
+                            Process.Start(new ProcessStartInfo(storeUrl) { UseShellExecute=true });
+                            storeLink.LinkVisited=true;
                         } catch (Exception ex) {
-                            MessageBox.Show(form,ex.Message,"확장 프로그램 폴더",MessageBoxButtons.OK,MessageBoxIcon.Information);
+                            MessageBox.Show(form,"브라우저를 열지 못했습니다. 아래 주소를 Chrome/Edge에서 열어 주세요.\r\n"+storeUrl+"\r\n\r\n"+ex.Message,"Event 확장 프로그램",MessageBoxButtons.OK,MessageBoxIcon.Information);
                         }
                     };
-                    guides.Controls.Add(folderLink);
+                    guides.Controls.Add(storeLink);
                 }
                 form.Controls.Add(guides); guides.BringToFront();
                 done=true; install.Text="닫기";

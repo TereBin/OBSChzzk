@@ -20,7 +20,7 @@ OBSChzzkEvent, OBSChzzkLiveEditor, OBSChzzkPing을 원하는 조합으로 설치
 - 공식 배포 저장소에서 설치 파일 다운로드 및 SHA-256 무결성 검사
 - 플러그인별 다운로드·설치 진행 상태 표시
 - 설치 완료 후 각 플러그인의 사용 설명서 바로 가기
-- Event 브라우저 확장 프로그램 등록 안내와 폴더 열기
+- Event 브라우저 확장 프로그램의 웹 스토어 설치 링크와 기존 설치본 전환 안내
 - 통합 설치 프로그램 자체의 새 버전 알림과 교체·재실행
 
 ## 설치할 수 있는 플러그인
@@ -31,7 +31,7 @@ OBSChzzkEvent, OBSChzzkLiveEditor, OBSChzzkPing을 원하는 조합으로 설치
 | OBSChzzkLiveEditor | OBS 도크에서 치지직 방송 제목·카테고리·태그 수정 | [LiveEditor 사용 설명서](https://github.com/TereBin/OBSChzzkLiveEditor-Releases#readme) |
 | OBSChzzkPing | 방송 시작 시 Discord 알림 전송 및 X 작성 화면 열기 | [Ping 사용 설명서](https://github.com/TereBin/OBSChzzkPing-Release#readme) |
 
-**Event는 설치 후 Chrome 또는 Edge에 브라우저 확장 프로그램을 별도로 등록해야 합니다.**
+**Event는 설치 후 Chrome 또는 Edge에 브라우저 확장 프로그램을 웹 스토어에서 별도로 설치해야 합니다.**
 LiveEditor의 로그인과 Ping의 채널·알림 설정도 설치 후 진행해 주세요.
 
 ## 요구 사항
@@ -47,18 +47,18 @@ LiveEditor의 로그인과 Ping의 채널·알림 설정도 설치 후 진행해
 
 ## 다운로드
 
-현재 통합 설치 프로그램 버전은 **1.1.9**입니다.
+현재 통합 설치 프로그램 버전은 **1.1.10**입니다.
 설치되는 각 플러그인의 버전은 실행 시 확인한 최신 정식 버전입니다.
 
-- [Windows x64 설치 파일 바로 다운로드](https://github.com/TereBin/OBSChzzk/releases/download/v1.1.9/OBSChzzk-1.1.9-windows-x64-setup.exe)
+- [Windows x64 설치 파일 바로 다운로드](https://github.com/TereBin/OBSChzzk/releases/download/v1.1.10/OBSChzzk-1.1.10-windows-x64-setup.exe)
 - [최신 릴리스와 변경 사항 보기](https://github.com/TereBin/OBSChzzk/releases/latest)
-- [SHA-256 체크섬 다운로드](https://github.com/TereBin/OBSChzzk/releases/download/v1.1.9/SHA256SUMS.txt)
+- [SHA-256 체크섬 다운로드](https://github.com/TereBin/OBSChzzk/releases/download/v1.1.10/SHA256SUMS.txt)
 
 설치 파일은 코드 서명되지 않아 Windows SmartScreen에 알 수 없는 게시자로 표시될 수 있습니다.
 공식 릴리스에서 받은 파일인지 확인하고, 아래 명령의 결과를 릴리스의 `SHA256SUMS.txt`와 비교할 수 있습니다.
 
 ```powershell
-Get-FileHash .\OBSChzzk-1.1.9-windows-x64-setup.exe -Algorithm SHA256
+Get-FileHash .\OBSChzzk-1.1.10-windows-x64-setup.exe -Algorithm SHA256
 ```
 
 ## 설치 및 업데이트
@@ -116,16 +116,13 @@ Get-FileHash .\OBSChzzk-1.1.9-windows-x64-setup.exe -Algorithm SHA256
 
 ### OBSChzzkEvent
 
-1. 완료 화면의 **확장 프로그램 폴더 열기**를 클릭합니다.
-2. Chrome에서 `chrome://extensions`, Edge에서 `edge://extensions`를 엽니다.
-3. **개발자 모드**를 켜고 **압축해제된 확장 프로그램을 로드**를 누릅니다.
-4. 다음 폴더를 선택합니다.
+1. 완료 화면의 **Event 브라우저 확장 프로그램 설치 (Chrome 웹 스토어)** 링크를 클릭합니다.
+2. [Chrome 웹 스토어](https://chromewebstore.google.com/detail/pakicliihbiimebagjgmmjkalfpejikc?hl=ko)에서 Chrome 또는 Edge에 확장 프로그램을 설치합니다. 기본 브라우저가 다른 브라우저라면 해당 주소를 Chrome/Edge에서 열어 주세요.
+3. 기존 개발자 모드 설치본을 사용했다면 확장 프로그램 관리 화면에서 비활성화하거나 제거하고, 스토어 설치본만 사용합니다. 기존 폴더를 삭제할 필요는 없습니다.
+4. OBS를 실행하고 치지직 리모컨을 다시 연 뒤 확장 프로그램에서 테스트 알림으로 연결을 확인합니다.
 
-```text
-<OBS 설치 폴더>\data\obs-plugins\obs-chzzk-alerts\browser-relay
-```
-
-이미 확장 프로그램을 등록했다면 새로 등록하는 대신 확장 프로그램을 새로고침하고 치지직 리모컨도 다시 열어 주세요.
+이미 스토어 설치본을 사용한다면 다시 설치하지 않아도 됩니다. Event 0.6.3부터 플러그인 설치 파일에는 확장이 동봉되지 않습니다.
+확장은 브라우저가 자동으로 업데이트하고, OBS 플러그인은 통합 설치 프로그램 등으로 직접 업데이트합니다. 호환되는 조합이라면 두 버전 번호를 맞출 필요는 없습니다.
 OBS에서 **치지직 팔로우 알림** 소스를 추가한 뒤 [Event 사용 설명서](https://github.com/TereBin/OBSChzzkEvent-Releases#readme)에 따라 테스트합니다.
 
 ### OBSChzzkLiveEditor
@@ -172,10 +169,10 @@ Event 브라우저 확장 프로그램은 Chrome/Edge에서도 별도로 제거�
 - **확인:** **실패**로 표시된 플러그인과 하단 오류 메시지를 확인합니다. 이후 진행하지 못한 플러그인은 **중단됨**으로 표시됩니다.
 - **해결:** 완료된 플러그인은 그대로 유지됩니다. 오류를 해결한 뒤 필요한 플러그인만 선택해 다시 설치하세요. 전체 설치를 되돌리는 기능은 없습니다.
 
-### Event 확장 프로그램 폴더가 없거나 알림이 작동하지 않음
+### Event 확장 프로그램을 찾지 못하거나 알림이 작동하지 않음
 
-- **확인:** Event 설치가 완료됐는지, 위 확장 프로그램 경로에 파일이 있는지 확인합니다.
-- **해결:** OBS를 종료하고 Event를 다시 설치한 뒤 확장 프로그램을 등록하거나 새로고침합니다. 이후 문제는 [Event 문제 해결](https://github.com/TereBin/OBSChzzkEvent-Releases#문제-해결)을 참고하세요.
+- **확인:** Event 설치가 완료됐는지, Chrome/Edge에 웹 스토어 확장이 활성화돼 있는지 확인합니다. 0.6.3부터 확장 폴더가 동봉되지 않는 것은 정상입니다.
+- **해결:** 위 웹 스토어 링크에서 확장을 설치하고 기존 개발자 모드 설치본은 비활성화하거나 제거합니다. OBS와 치지직 리모컨을 다시 열고 테스트하세요. 이후 문제는 [Event 문제 해결](https://github.com/TereBin/OBSChzzkEvent-Releases#문제-해결)을 참고하세요.
 
 ### 설치 로그 확인
 
