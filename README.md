@@ -21,6 +21,7 @@ OBSChzzkEvent, OBSChzzkLiveEditor, OBSChzzkPing을 원하는 조합으로 설치
 - 플러그인별 다운로드·설치 진행 상태 표시
 - 설치 완료 후 각 플러그인의 사용 설명서 바로 가기
 - Event 브라우저 확장 프로그램 등록 안내와 폴더 열기
+- 통합 설치 프로그램 자체의 새 버전 알림과 교체·재실행
 
 ## 설치할 수 있는 플러그인
 
@@ -46,18 +47,18 @@ LiveEditor의 로그인과 Ping의 채널·알림 설정도 설치 후 진행해
 
 ## 다운로드
 
-현재 통합 설치 프로그램 버전은 **1.1.8**입니다.
+현재 통합 설치 프로그램 버전은 **1.1.9**입니다.
 설치되는 각 플러그인의 버전은 실행 시 확인한 최신 정식 버전입니다.
 
-- [Windows x64 설치 파일 바로 다운로드](https://github.com/TereBin/OBSChzzk/releases/download/v1.1.8/OBSChzzk-1.1.8-windows-x64-setup.exe)
+- [Windows x64 설치 파일 바로 다운로드](https://github.com/TereBin/OBSChzzk/releases/download/v1.1.9/OBSChzzk-1.1.9-windows-x64-setup.exe)
 - [최신 릴리스와 변경 사항 보기](https://github.com/TereBin/OBSChzzk/releases/latest)
-- [SHA-256 체크섬 다운로드](https://github.com/TereBin/OBSChzzk/releases/download/v1.1.8/SHA256SUMS.txt)
+- [SHA-256 체크섬 다운로드](https://github.com/TereBin/OBSChzzk/releases/download/v1.1.9/SHA256SUMS.txt)
 
 설치 파일은 코드 서명되지 않아 Windows SmartScreen에 알 수 없는 게시자로 표시될 수 있습니다.
 공식 릴리스에서 받은 파일인지 확인하고, 아래 명령의 결과를 릴리스의 `SHA256SUMS.txt`와 비교할 수 있습니다.
 
 ```powershell
-Get-FileHash .\OBSChzzk-1.1.8-windows-x64-setup.exe -Algorithm SHA256
+Get-FileHash .\OBSChzzk-1.1.9-windows-x64-setup.exe -Algorithm SHA256
 ```
 
 ## 설치 및 업데이트
@@ -80,7 +81,6 @@ Get-FileHash .\OBSChzzk-1.1.8-windows-x64-setup.exe -Algorithm SHA256
 
 통합 설치 프로그램을 다시 실행하고 **업데이트 가능**으로 표시된 플러그인을 선택해 설치합니다.
 플러그인이 업데이트될 때마다 통합 설치 파일을 새로 받을 필요는 없습니다.
-통합 설치 프로그램 자체의 개선 사항은 이 저장소의 [최신 릴리스](https://github.com/TereBin/OBSChzzk/releases/latest)를 확인하세요.
 
 | 표시 | 의미 |
 | --- | --- |
@@ -93,6 +93,24 @@ Get-FileHash .\OBSChzzk-1.1.8-windows-x64-setup.exe -Algorithm SHA256
 선택한 플러그인은 최신 정식 버전으로 재설치됩니다.
 시험판이나 개발 버전을 사용하고 있다면 정식 버전으로 바뀔 수 있으므로 선택 전에 버전을 확인하세요.
 프로그램을 오래 열어 두었다면 닫았다가 다시 실행해 최신 정보를 확인해 주세요.
+
+### 통합 설치 프로그램 업데이트
+
+**1.1.9부터** 실행할 때 이 저장소의 최신 정식 버전과 현재 프로그램 버전을 비교합니다.
+새 버전이 있으면 다음 선택지가 표시됩니다. 플러그인 업데이트와는 별개의 기능입니다.
+
+| 선택 | 동작 |
+| --- | --- |
+| 지금 설치 | 최신 EXE를 다운로드하고 SHA-256과 파일 버전을 검증한 뒤, 현재 EXE를 교체하고 다시 실행 |
+| 다음 | 현재 버전으로 계속 사용하며 다음 실행 때 다시 알림 |
+| 이 버전 건너뛰기 | 해당 최신 버전의 알림을 생략하고, 그보다 새로운 정식 버전이 나오면 다시 알림 |
+
+창을 닫는 동작은 **다음**과 같습니다. 건너뛴 버전은 Windows 사용자별로 저장합니다.
+확인에 실패하거나 시간이 초과되면 현재 프로그램으로 계속 사용할 수 있습니다.
+교체·재실행에 실패하면 오류를 알리고 가능한 경우 기존 EXE를 복원합니다.
+실행 파일 이름과 위치는 유지되므로 파일 이름의 버전 대신 프로그램 제목에 표시된 버전을 확인하세요.
+
+1.1.8 이하에는 이 기능이 없으므로 이번 버전은 [최신 릴리스](https://github.com/TereBin/OBSChzzk/releases/latest)에서 직접 내려받아 실행해 주세요.
 
 ## 설치 후 설정
 

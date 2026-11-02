@@ -1,5 +1,7 @@
 using System;
 using System.Web.Script.Serialization;
+using System.IO;
+using System.Security.Cryptography;
 static class Tests {
     static string Json(string name, string digest, string url, bool prerelease) {
         return new JavaScriptSerializer().Serialize(new { draft=false, prerelease=prerelease, tag_name="v1.2.3", assets=new [] {
@@ -10,6 +12,31 @@ static class Tests {
         try { return Check(); } catch (Exception ex) { Console.WriteLine(ex.GetType().Name + ": " + ex.Message); return 1; }
     }
     static int Check() {
+        if(!Program.ShouldOfferUpdate("1.1.8","v1.1.9",null) ||
+           Program.ShouldOfferUpdate("1.1.8","v1.1.9","v1.1.9") ||
+           Program.ShouldOfferUpdate("1.1.9","v1.1.9",null) ||
+           Program.ShouldOfferUpdate("1.2.0","v1.1.9",null) ||
+           !Program.ShouldOfferUpdate("1.1.8","v1.2.0","v1.1.9") ||
+           Program.ShouldOfferUpdate("1.1.8","v1.1.9","1.1.9.0")) throw new Exception("Self-update notification policy failed");
+        Console.WriteLine("PASS: self-update offer, defer, skip, next version, same/older version");
+        string folder=Path.Combine(Path.GetTempPath(),"OBSChzzk-test-"+Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        try {
+            string target=Path.Combine(folder,"target.exe"), payload=Path.Combine(folder,"update.exe");
+            File.WriteAllText(target,"old"); File.WriteAllText(payload,"new");
+            string hash;
+            using(var sha=SHA256.Create()) hash=BitConverter.ToString(sha.ComputeHash(File.ReadAllBytes(payload))).Replace("-","");
+            bool launched=false;
+            Program.ReplaceAndLaunch(target,payload,hash,()=> { if(File.ReadAllText(target)!="new") throw new Exception("Not replaced"); launched=true; });
+            if(!launched || Directory.GetFiles(folder).Length!=2) throw new Exception("Replacement/cleanup failed");
+            File.WriteAllText(target,"old");
+            try { Program.ReplaceAndLaunch(target,payload,hash,()=> { throw new Exception("Launch failed"); }); } catch { }
+            if(File.ReadAllText(target)!="old" || Directory.GetFiles(folder).Length!=2) throw new Exception("Rollback failed");
+            bool hashRejected=false;
+            try { Program.ReplaceAndLaunch(target,payload,new string('0',64),()=> { throw new Exception("Must not launch"); }); } catch { hashRejected=true; }
+            if(!hashRejected || File.ReadAllText(target)!="old") throw new Exception("Corrupt payload accepted");
+        } finally { Directory.Delete(folder,true); }
+        Console.WriteLine("PASS: verified replacement, relaunch callback, launch failure rollback, corrupt download rejection");
         string[][] versions={
             new [] {"0.8.1.0","v0.8.2","업데이트 가능"},
             new [] {"0.8.2.0","v0.8.2","최신 버전"},

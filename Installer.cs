@@ -10,6 +10,11 @@ using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 using Microsoft.Win32;
+using System.Reflection;
+
+[assembly: AssemblyVersion("1.1.9.0")]
+[assembly: AssemblyFileVersion("1.1.9.0")]
+[assembly: AssemblyInformationalVersion("1.1.9")]
 
 class Plugin {
     public string Name, Repo, Description, Dll, Help;
@@ -23,6 +28,104 @@ class Release {
     public long Size;
 }
 static class Program {
+    public const string AppVersion="1.1.9";
+    static readonly Plugin Self=new Plugin { Name="OBSChzzk",Repo="OBSChzzk" };
+    static string SkipFile { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"OBSChzzk","skipped-installer-version.txt"); } }
+    public static bool ShouldOfferUpdate(string current,string latest,string skipped) {
+        return CompareVersions(current,latest)=="업데이트 가능" && CompareVersions(skipped ?? "",latest)!="최신 버전";
+    }
+    static string ReadSkipped() { try { return File.ReadAllText(SkipFile).Trim(); } catch { return null; } }
+    static void SaveSkipped(string tag) {
+        Directory.CreateDirectory(Path.GetDirectoryName(SkipFile));
+        File.WriteAllText(SkipFile,tag);
+    }
+    static DialogResult AskUpdate(Form owner,string tag) {
+        using(var dialog=new Form { Text="OBSChzzk 업데이트",ClientSize=new System.Drawing.Size(610,195),StartPosition=FormStartPosition.CenterParent,FormBorderStyle=FormBorderStyle.FixedDialog,MaximizeBox=false,MinimizeBox=false,AutoScaleMode=AutoScaleMode.Dpi }) {
+            dialog.Controls.Add(new Label { Left=20,Top=20,Width=570,Height=100,Text="통합 설치 프로그램의 새 버전이 있습니다.\r\n현재: "+AppVersion+"   최신: "+tag+"\r\n\r\n지금 설치하면 프로그램을 새 버전으로 교체하고 다시 실행합니다." });
+            string[] labels={"지금 설치","다음","이 버전 건너뛰기"};
+            DialogResult[] results={DialogResult.Yes,DialogResult.No,DialogResult.Ignore};
+            for(int i=0;i<labels.Length;i++) {
+                var button=new Button { Text=labels[i],Left=20+i*195,Top=135,Width=180,Height=38,DialogResult=results[i] };
+                dialog.Controls.Add(button);
+                if(i==1) dialog.CancelButton=button;
+            }
+            return dialog.ShowDialog(owner);
+        }
+    }
+    // Replace through a sibling file so an incomplete copy never overwrites the running program.
+    public static void ReplaceAndLaunch(string target,string payload,string expectedHash,Action launch) {
+        if(!Hash(payload).Equals(expectedHash,StringComparison.OrdinalIgnoreCase)) throw new Exception("업데이트 파일의 SHA-256이 일치하지 않습니다.");
+        string staged=target+".update-"+Guid.NewGuid().ToString("N");
+        string backup=target+".backup-"+Guid.NewGuid().ToString("N");
+        bool safeToDeleteBackup=false;
+        try {
+            File.Copy(payload,staged,false);
+            if(!Hash(staged).Equals(expectedHash,StringComparison.OrdinalIgnoreCase)) throw new Exception("교체할 파일의 검증에 실패했습니다.");
+            File.Replace(staged,target,backup);
+            try { launch(); }
+            catch { File.Copy(backup,target,true); safeToDeleteBackup=true; throw; }
+            safeToDeleteBackup=true;
+        } finally {
+            if(File.Exists(staged)) File.Delete(staged);
+            // If rollback itself failed, keep the backup for recovery.
+            if(File.Exists(backup) && safeToDeleteBackup) File.Delete(backup);
+        }
+    }
+    static int ApplySelfUpdate(string configPath) {
+        try {
+            var config=new JavaScriptSerializer().Deserialize<Dictionary<string,string>>(File.ReadAllText(configPath));
+            string target=Path.GetFullPath(config["target"]);
+            string payload=Path.Combine(Path.GetDirectoryName(configPath),"OBSChzzk-setup.exe");
+            if(!target.EndsWith(".exe",StringComparison.OrdinalIgnoreCase) || target==Application.ExecutablePath) throw new Exception("잘못된 업데이트 대상입니다.");
+            int pid=Int32.Parse(config["pid"]);
+            try { using(var parent=Process.GetProcessById(pid)) if(!parent.WaitForExit(60000)) throw new Exception("기존 프로그램 종료를 기다리는 시간이 초과되었습니다."); }
+            catch(ArgumentException) { }
+            ReplaceAndLaunch(target,payload,config["hash"],()=> {
+                using(var started=Process.Start(new ProcessStartInfo(target) { UseShellExecute=true,WorkingDirectory=Path.GetDirectoryName(target) })) {
+                    if(started==null) throw new Exception("새 버전을 실행하지 못했습니다.");
+                }
+            });
+            File.Delete(payload); File.Delete(configPath);
+            return 0;
+        } catch(Exception ex) {
+            MessageBox.Show("통합 설치 프로그램 업데이트를 완료하지 못했습니다. 기존 EXE를 다시 실행하거나 최신 릴리스를 직접 받아 주세요.\r\n\r\n"+ex.Message,"OBSChzzk 업데이트",MessageBoxButtons.OK,MessageBoxIcon.Error);
+            return 1;
+        }
+    }
+    static async Task<bool> CheckSelfUpdate(Form form,TextBox status) {
+        string folder=null;
+        bool applying=false;
+        try {
+            status.Text="통합 설치 프로그램의 최신 버전을 확인하고 있습니다...";
+            var lookup=Latest(Self);
+            if(await Task.WhenAny(lookup,Task.Delay(20000))!=lookup) { status.Text="통합 설치 프로그램 업데이트 확인 시간 초과. 현재 버전으로 계속합니다."; return false; }
+            var release=await lookup;
+            if(!ShouldOfferUpdate(AppVersion,release.Tag,ReadSkipped())) return false;
+            var choice=AskUpdate(form,release.Tag);
+            if(choice==DialogResult.Ignore) { SaveSkipped(release.Tag); return false; }
+            if(choice!=DialogResult.Yes) return false;
+            applying=true;
+            status.Text="통합 설치 프로그램 "+release.Tag+" 다운로드·검증 중...";
+            folder=Path.Combine(Path.GetTempPath(),"OBSChzzk-self-update-"+Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(folder);
+            string payload=await Download(release,folder);
+            if(CompareVersions(FileVersionInfo.GetVersionInfo(payload).ProductVersion ?? "",release.Tag)!="최신 버전") throw new Exception("다운로드한 EXE 버전이 릴리스 버전과 다릅니다.");
+            string helper=Path.Combine(folder,"update-helper.exe");
+            File.Copy(Application.ExecutablePath,helper);
+            string config=Path.Combine(folder,"update.json");
+            File.WriteAllText(config,new JavaScriptSerializer().Serialize(new Dictionary<string,string> {
+                {"target",Application.ExecutablePath},{"pid",Process.GetCurrentProcess().Id.ToString()},{"hash",release.Sha256}
+            }));
+            using(var process=Process.Start(new ProcessStartInfo(helper,"--apply-self-update \""+config+"\"") { UseShellExecute=false,CreateNoWindow=true })) {
+                if(process==null) throw new Exception("업데이트 도우미를 실행하지 못했습니다.");
+            }
+            return true;
+        } catch(Exception ex) {
+            if(applying) MessageBox.Show(form,"프로그램 업데이트를 적용하지 못했습니다. 현재 버전으로 계속합니다.\r\n\r\n"+ex.Message,"OBSChzzk 업데이트",MessageBoxButtons.OK,MessageBoxIcon.Information);
+            else status.Text="통합 설치 프로그램 업데이트 확인 실패. 현재 버전으로 계속합니다.";
+            return false;
+        }
+    }
     static void SetStatus(Plugin plugin, string text) {
         plugin.StatusLabel.Text=text;
         plugin.StatusLabel.ForeColor=text=="완료" ? System.Drawing.Color.DarkGreen :
@@ -40,7 +143,7 @@ static class Program {
     static HttpClient CreateClient() {
         ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
         var client = new HttpClient { Timeout=TimeSpan.FromMinutes(10) };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("OBSChzzkInstaller/1.1.8");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("OBSChzzkInstaller/"+AppVersion);
         return client;
     }
     public static Release ParseRelease(Plugin plugin, string json) {
@@ -179,6 +282,7 @@ static class Program {
         if (!File.Exists(Path.Combine(obs, @"obs-plugins\64bit", plugin.Dll))) throw new Exception(plugin.Name + ": 설치된 DLL을 찾지 못했습니다.");
     }
     [STAThread] static int Main(string[] args) {
+        if(args.Length==2 && args[0]=="--apply-self-update") return ApplySelfUpdate(args[1]);
         // Read-only/network verification path: never launches a plugin installer.
         if (args.Length == 2 && (args[0] == "--check-downloads" || args[0] == "--check-web-downloads")) {
             useReleasePages=args[0]=="--check-web-downloads";
@@ -193,7 +297,7 @@ static class Program {
             } catch (Exception ex) { File.WriteAllText(Path.Combine(args[1],"error.txt"),ex.ToString()); return 1; }
         }
         Application.EnableVisualStyles();
-        var form=new Form { Text="OBSChzzk 통합 설치 1.1.8", ClientSize=new System.Drawing.Size(680,610), StartPosition=FormStartPosition.CenterScreen, FormBorderStyle=FormBorderStyle.FixedDialog, MaximizeBox=false, AutoScaleMode=AutoScaleMode.Dpi };
+        var form=new Form { Text="OBSChzzk 통합 설치 "+AppVersion, ClientSize=new System.Drawing.Size(680,610), StartPosition=FormStartPosition.CenterScreen, FormBorderStyle=FormBorderStyle.FixedDialog, MaximizeBox=false, AutoScaleMode=AutoScaleMode.Dpi };
         form.Controls.Add(new Label { Left=22,Top=18,Width=635,Height=40,Text="원하는 플러그인을 선택하세요. 설치할 때 GitHub의 최신 정식 버전을 받습니다." });
         for (int i=0;i<Plugins.Length;i++) {
             var plugin=Plugins[i]; int y=65+i*86;
@@ -238,7 +342,11 @@ static class Program {
             }
             setBusy(false);
         };
-        form.Shown += async (s,e) => await refreshVersions();
+        form.Shown += async (s,e) => {
+            setBusy(true);
+            if(await CheckSelfUpdate(form,status)) { busy=false; form.Close(); return; }
+            await refreshVersions();
+        };
         form.FormClosing += (s,e) => { if (busy) e.Cancel=true; };
         install.Click += async (s,e) => {
             if (done) { form.Close(); return; }
