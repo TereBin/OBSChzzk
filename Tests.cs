@@ -12,6 +12,30 @@ static class Tests {
         try { return Check(); } catch (Exception ex) { Console.WriteLine(ex.GetType().Name + ": " + ex.Message); return 1; }
     }
     static int Check() {
+        var editor=new Plugin {Name="OBSChzzkLiveEditor",Dll="OBSChzzkLiveEditor.dll"};
+        if(!Program.RequiresObs33(new Release {Plugin=editor,Tag="v0.4.0"}) || Program.RequiresObs33(new Release {Plugin=editor,Tag="v0.3.6"}) ||
+            Program.SupportsObs33("32.2.2") || !Program.SupportsObs33("33.0.0.0") || !Program.SupportsObs33("34.0.1") || Program.SupportsObs33(null)) throw new Exception("OBS requirements failed");
+        string pathsRoot=Path.Combine(Path.GetTempPath(),"OBSChzzk-path-test-"+Guid.NewGuid().ToString("N"));
+        try {
+            string obs=Path.Combine(pathsRoot,"obs"), common=Path.Combine(pathsRoot,"common");
+            string old=Path.Combine(obs,@"obs-plugins\64bit\OBSChzzkLiveEditor.dll");
+            string modern=Path.Combine(common,@"obs-studio\plugins\OBSChzzkLiveEditor\OBSChzzkLiveEditor.dll");
+            if(Program.FindInstalledDll(editor,obs,common)!=null) throw new Exception("Missing DLL accepted");
+            Directory.CreateDirectory(Path.GetDirectoryName(old)); File.WriteAllText(old,"");
+            if(Program.FindInstalledDll(editor,obs,common)!=old) throw new Exception("Legacy detection failed");
+            var modernRelease=new Release {Plugin=editor,Tag="v0.4.0"};
+            bool missingRejected=false;
+            try {Program.VerifyInstalled(modernRelease,obs,common);} catch {missingRejected=true;}
+            if(!missingRejected) throw new Exception("Old DLL accepted as modern install");
+            Directory.CreateDirectory(Path.GetDirectoryName(modern)); File.WriteAllText(modern,"");
+            if(Program.FindInstalledDll(editor,obs,common)!=modern) throw new Exception("ProgramData priority failed");
+            foreach(string relative in new [] {@"tls\qschannelbackend.dll",@"data\locale\ko-KR.ini"}) {
+                string path=Path.Combine(Path.GetDirectoryName(modern),relative);Directory.CreateDirectory(Path.GetDirectoryName(path));File.WriteAllText(path,"");
+            }
+            Program.VerifyInstalled(modernRelease,obs,common);
+            Program.VerifyInstalled(new Release {Plugin=editor,Tag="v0.3.6"},obs,common);
+        } finally {if(Directory.Exists(pathsRoot)) Directory.Delete(pathsRoot,true);}
+        Console.WriteLine("PASS: ProgramData/legacy detection, modern install validation, OBS 33 requirements");
         if(!Program.ShouldOfferUpdate("1.1.8","v1.1.9",null) ||
            Program.ShouldOfferUpdate("1.1.8","v1.1.9","v1.1.9") ||
            Program.ShouldOfferUpdate("1.1.9","v1.1.9",null) ||

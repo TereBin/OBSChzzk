@@ -12,9 +12,9 @@ using System.Windows.Forms;
 using Microsoft.Win32;
 using System.Reflection;
 
-[assembly: AssemblyVersion("1.1.10.0")]
-[assembly: AssemblyFileVersion("1.1.10.0")]
-[assembly: AssemblyInformationalVersion("1.1.10")]
+[assembly: AssemblyVersion("1.1.11.0")]
+[assembly: AssemblyFileVersion("1.1.11.0")]
+[assembly: AssemblyInformationalVersion("1.1.11")]
 
 class Plugin {
     public string Name, Repo, Description, Dll, Help;
@@ -28,7 +28,7 @@ class Release {
     public long Size;
 }
 static class Program {
-    public const string AppVersion="1.1.10";
+    public const string AppVersion="1.1.11";
     static readonly Plugin Self=new Plugin { Name="OBSChzzk",Repo="OBSChzzk" };
     static string SkipFile { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"OBSChzzk","skipped-installer-version.txt"); } }
     public static bool ShouldOfferUpdate(string current,string latest,string skipped) {
@@ -226,14 +226,45 @@ static class Program {
         return file;
     }
     static bool IsObs(string path) { return !String.IsNullOrEmpty(path) && File.Exists(Path.Combine(path, @"bin\64bit\obs64.exe")); }
-    static string InstalledVersion(Plugin plugin, string obs) {
-        string dll=Path.Combine(obs,@"obs-plugins\64bit",plugin.Dll);
-        bool legacy=false;
-        if (!File.Exists(dll) && plugin.Name == "OBSChzzkLiveEditor") {
-            dll=Path.Combine(obs,@"obs-plugins\64bit\obs-live-editor.dll");
-            legacy=File.Exists(dll);
+    public static string FindInstalledDll(Plugin plugin,string obs,string commonData) {
+        if(plugin.Name=="OBSChzzkLiveEditor") {
+            string modern=Path.Combine(commonData,@"obs-studio\plugins\OBSChzzkLiveEditor\OBSChzzkLiveEditor.dll");
+            if(File.Exists(modern)) return modern;
         }
-        if (!File.Exists(dll)) return "미설치";
+        string dll=Path.Combine(obs,@"obs-plugins\64bit",plugin.Dll);
+        if(File.Exists(dll)) return dll;
+        if(plugin.Name=="OBSChzzkLiveEditor") {
+            string legacy=Path.Combine(obs,@"obs-plugins\64bit\obs-live-editor.dll");
+            if(File.Exists(legacy)) return legacy;
+        }
+        return null;
+    }
+    public static bool RequiresObs33(Release release) {
+        string comparison=CompareVersions("0.4.0",release.Tag);
+        return release.Plugin.Name=="OBSChzzkLiveEditor" && (comparison=="최신 버전" || comparison=="업데이트 가능");
+    }
+    public static bool SupportsObs33(string version) {
+        string comparison=CompareVersions("33.0.0",version ?? "");
+        return comparison=="최신 버전" || comparison=="업데이트 가능";
+    }
+    static void CheckRequirements(Release release,string obs) {
+        if(!RequiresObs33(release)) return;
+        var info=FileVersionInfo.GetVersionInfo(Path.Combine(obs,@"bin\64bit\obs64.exe"));
+        string version=info.FileVersion;
+        if(!SupportsObs33(version)) throw new Exception("LiveEditor "+release.Tag+" 설치에는 OBS Studio 33.0.0 이상이 필요합니다. 현재 OBS: "+(version ?? "버전 확인 불가")+". OBS를 업데이트하거나 LiveEditor 선택을 해제하세요.");
+    }
+    public static void VerifyInstalled(Release release,string obs,string commonData) {
+        if(RequiresObs33(release)) {
+            string root=Path.Combine(commonData,@"obs-studio\plugins\OBSChzzkLiveEditor");
+            foreach(string relative in new [] {"OBSChzzkLiveEditor.dll",@"tls\qschannelbackend.dll",@"data\locale\ko-KR.ini"})
+                if(!File.Exists(Path.Combine(root,relative))) throw new Exception("LiveEditor 설치 파일 확인 실패: "+Path.Combine(root,relative));
+        } else if(!File.Exists(Path.Combine(obs,@"obs-plugins\64bit",release.Plugin.Dll)))
+            throw new Exception(release.Plugin.Name+": 설치된 DLL을 찾지 못했습니다.");
+    }
+    static string InstalledVersion(Plugin plugin, string obs) {
+        string dll=FindInstalledDll(plugin,obs,Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData));
+        if(dll==null) return "미설치";
+        bool legacy=String.Equals(Path.GetFileName(dll),"obs-live-editor.dll",StringComparison.OrdinalIgnoreCase);
         var info=FileVersionInfo.GetVersionInfo(dll);
         string version=info.ProductVersion;
         if (String.IsNullOrWhiteSpace(version)) version=info.FileVersion;
@@ -271,15 +302,17 @@ static class Program {
     static void CheckObsClosed() {
         if (Process.GetProcessesByName("obs64").Length != 0) throw new Exception("OBS Studio를 완전히 종료한 후 다시 설치하세요.");
     }
-    static void Run(string file, string log, string obs, Plugin plugin) {
+    static void Run(string file, string log, string obs, Release release) {
+        var plugin=release.Plugin;
         CheckObsClosed();
+        CheckRequirements(release,obs);
         string args="/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /NOCLOSEAPPLICATIONS /NORESTARTAPPLICATIONS /LOG=\"" + log + "\"";
         if (plugin.Name == "OBSChzzkPing") args += " /OBSPATH=\"" + obs + "\"";
         using (var p=Process.Start(new ProcessStartInfo(file,args) { UseShellExecute=false })) {
             p.WaitForExit();
             if (p.ExitCode != 0) throw new Exception(plugin.Name + " 설치 실패 (코드 " + p.ExitCode + "). 로그: " + log);
         }
-        if (!File.Exists(Path.Combine(obs, @"obs-plugins\64bit", plugin.Dll))) throw new Exception(plugin.Name + ": 설치된 DLL을 찾지 못했습니다.");
+        VerifyInstalled(release,obs,Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData));
     }
     [STAThread] static int Main(string[] args) {
         if(args.Length==2 && args[0]=="--apply-self-update") return ApplySelfUpdate(args[1]);
@@ -366,6 +399,7 @@ static class Program {
                     SetStatus(plugin,"릴리스 확인 중...");
                     append(plugin.Name+": 최신 릴리스 확인 중...");
                     var release=await Latest(plugin);
+                    CheckRequirements(release,obs);
                     append(plugin.Name+" "+release.Tag+": 다운로드 및 SHA-256 확인 중...");
                     SetStatus(plugin,"다운로드·검증 중...");
                     var file=await Download(release,folder);
@@ -380,7 +414,7 @@ static class Program {
                     active=plugin;
                     SetStatus(plugin,"설치 중...");
                     append(plugin.Name+": 설치 중...");
-                    await Task.Run(()=>Run(package.Item2,Path.Combine(logs,plugin.Name+".log"),obs,plugin));
+                    await Task.Run(()=>Run(package.Item2,Path.Combine(logs,plugin.Name+".log"),obs,package.Item1));
                     append(plugin.Name+": 완료");
                     SetStatus(plugin,"완료");
                     active=null;
