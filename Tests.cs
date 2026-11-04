@@ -80,6 +80,12 @@ static class Tests {
         var plugin=new Plugin { Name="OBSChzzkPing", Repo="OBSChzzkPing-Release" };
         string url="https://github.com/TereBin/OBSChzzkPing-Release/releases/download/v1.2.3/OBSChzzkPing-Setup.exe";
         string digest="sha256:"+new string('a',64);
+        var self=new Plugin {Name="OBSChzzk",Repo="OBSChzzk"};
+        foreach(var name in new [] {"OBSChzzk-Setup.exe","OBSChzzk-1.1.12-windows-x64-setup.exe"}) {
+            var selfRelease=Program.ParseRelease(self,Json(name,digest,"https://github.com/TereBin/OBSChzzk/releases/download/v1.2.3/"+name,false));
+            if(!selfRelease.Url.EndsWith(name)) throw new Exception("Self-update asset name compatibility failed");
+        }
+        Console.WriteLine("PASS: stable and previous versioned installer asset names");
         var release=Program.ParseRelease(plugin,Json("OBSChzzkPing-Setup.exe",digest,url,false));
         if (release.Tag!="v1.2.3" || release.Size!=123 || release.Sha256.Length!=64) throw new Exception("Valid release failed");
         string[] rejected={ Json("OBSChzzkPing-Setup.exe",null,url,false), Json("OBSChzzkPing-Setup.exe",digest,"https://example.com/setup.exe",false), Json("OBSChzzkPing-windows-x64.zip",digest,url,false), Json("OBSChzzkPing-Setup.exe",digest,url,true) };

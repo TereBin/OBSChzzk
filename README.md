@@ -49,18 +49,18 @@ LiveEditor의 로그인과 Ping의 채널·알림 설정도 설치 후 진행해
 
 ## 다운로드
 
-현재 통합 설치 프로그램 버전은 **1.1.12**입니다.
+현재 통합 설치 프로그램 버전은 **1.1.13**입니다.
 설치되는 각 플러그인의 버전은 실행 시 확인한 최신 정식 버전입니다.
 
-- [Windows x64 설치 파일 바로 다운로드](https://github.com/TereBin/OBSChzzk/releases/download/v1.1.12/OBSChzzk-1.1.12-windows-x64-setup.exe)
+- [Windows x64 설치 파일 바로 다운로드](https://github.com/TereBin/OBSChzzk/releases/latest/download/OBSChzzk-Setup.exe)
 - [최신 릴리스와 변경 사항 보기](https://github.com/TereBin/OBSChzzk/releases/latest)
-- [SHA-256 체크섬 다운로드](https://github.com/TereBin/OBSChzzk/releases/download/v1.1.12/SHA256SUMS.txt)
+- [SHA-256 체크섬 다운로드](https://github.com/TereBin/OBSChzzk/releases/latest/download/SHA256SUMS.txt)
 
 설치 파일은 코드 서명되지 않아 Windows SmartScreen에 알 수 없는 게시자로 표시될 수 있습니다.
 공식 릴리스에서 받은 파일인지 확인하고, 아래 명령의 결과를 릴리스의 `SHA256SUMS.txt`와 비교할 수 있습니다.
 
 ```powershell
-Get-FileHash .\OBSChzzk-1.1.12-windows-x64-setup.exe -Algorithm SHA256
+Get-FileHash .\OBSChzzk-Setup.exe -Algorithm SHA256
 ```
 
 ## 설치 및 업데이트
@@ -110,7 +110,7 @@ Get-FileHash .\OBSChzzk-1.1.12-windows-x64-setup.exe -Algorithm SHA256
 창을 닫는 동작은 **다음**과 같습니다. 건너뛴 버전은 Windows 사용자별로 저장합니다.
 확인에 실패하거나 시간이 초과되면 현재 프로그램으로 계속 사용할 수 있습니다.
 교체·재실행에 실패하면 오류를 알리고 가능한 경우 기존 EXE를 복원합니다.
-실행 파일 이름과 위치는 유지되므로 파일 이름의 버전 대신 프로그램 제목에 표시된 버전을 확인하세요.
+배포 파일명은 `OBSChzzk-Setup.exe`로 통일하며, 실행 화면 맨 아래의 **현재 버전**에서 실제 실행 버전을 확인합니다. 자체 업데이트는 실행 파일 이름과 위치를 유지합니다. 이전 버전 번호가 들어간 EXE를 업데이트했다면 이름은 그대로 남으므로, 이름을 통일하려면 새 `OBSChzzk-Setup.exe`를 내려받아 사용하거나 프로그램 종료 후 기존 파일 이름을 변경하세요.
 
 1.1.8 이하에는 이 기능이 없으므로 이번 버전은 [최신 릴리스](https://github.com/TereBin/OBSChzzk/releases/latest)에서 직접 내려받아 실행해 주세요.
 

@@ -12,9 +12,9 @@ using System.Windows.Forms;
 using Microsoft.Win32;
 using System.Reflection;
 
-[assembly: AssemblyVersion("1.1.12.0")]
-[assembly: AssemblyFileVersion("1.1.12.0")]
-[assembly: AssemblyInformationalVersion("1.1.12")]
+[assembly: AssemblyVersion("1.1.13.0")]
+[assembly: AssemblyFileVersion("1.1.13.0")]
+[assembly: AssemblyInformationalVersion("1.1.13")]
 
 class Plugin {
     public string Name, Repo, Description, Dll, Help;
@@ -29,7 +29,7 @@ class Release {
     public long Size;
 }
 static class Program {
-    public const string AppVersion="1.1.12";
+    public const string AppVersion="1.1.13";
     static readonly Plugin Self=new Plugin { Name="OBSChzzk",Repo="OBSChzzk" };
     static string SkipFile { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"OBSChzzk","skipped-installer-version.txt"); } }
     public static bool ShouldOfferUpdate(string current,string latest,string skipped) {
@@ -337,7 +337,7 @@ static class Program {
         Application.EnableVisualStyles();
         string obsVersion=null;
         try { obsVersion=FileVersionInfo.GetVersionInfo(Path.Combine(Detect(),@"bin\64bit\obs64.exe")).FileVersion; } catch { }
-        var form=new Form { Text="OBSChzzk 통합 설치 "+AppVersion, ClientSize=new System.Drawing.Size(680,610), StartPosition=FormStartPosition.CenterScreen, FormBorderStyle=FormBorderStyle.FixedDialog, MaximizeBox=false, AutoScaleMode=AutoScaleMode.Dpi };
+        var form=new Form { Text="OBSChzzk 통합 설치", ClientSize=new System.Drawing.Size(680,630), StartPosition=FormStartPosition.CenterScreen, FormBorderStyle=FormBorderStyle.FixedDialog, MaximizeBox=false, AutoScaleMode=AutoScaleMode.Dpi };
         form.Controls.Add(new Label { Left=22,Top=18,Width=635,Height=40,Text="원하는 플러그인을 선택하세요. 설치할 때 GitHub의 최신 정식 버전을 받습니다." });
         for (int i=0;i<Plugins.Length;i++) {
             var plugin=Plugins[i]; int y=65+i*86;
@@ -357,6 +357,7 @@ static class Program {
         var status=new TextBox { Left=24,Top=330,Width=630,Height=200,Multiline=true,ReadOnly=true,ScrollBars=ScrollBars.Vertical,Text="OBS와 치지직 리모컨을 종료하세요.\r\n인터넷 연결이 필요합니다. 정식 설치된 OBS 경로를 자동으로 사용합니다." };
         var install=new Button { Text="선택한 플러그인 설치",Left=424,Top=553,Width=230,Height=36 };
         form.Controls.Add(status); form.Controls.Add(install);
+        form.Controls.Add(new Label { Left=24,Top=601,Width=630,Height=20,Text="현재 버전: "+AppVersion,ForeColor=System.Drawing.Color.DimGray });
         bool busy=false, done=false;
         Action<bool> setBusy=value => { busy=value; install.Enabled=!value; foreach (var plugin in Plugins) plugin.Choice.Enabled=!value && plugin.Available; };
         Action<string> append=message => status.AppendText("\r\n" + message);
