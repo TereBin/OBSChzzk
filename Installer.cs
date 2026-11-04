@@ -12,15 +12,16 @@ using System.Windows.Forms;
 using Microsoft.Win32;
 using System.Reflection;
 
-[assembly: AssemblyVersion("1.1.11.0")]
-[assembly: AssemblyFileVersion("1.1.11.0")]
-[assembly: AssemblyInformationalVersion("1.1.11")]
+[assembly: AssemblyVersion("1.1.12.0")]
+[assembly: AssemblyFileVersion("1.1.12.0")]
+[assembly: AssemblyInformationalVersion("1.1.12")]
 
 class Plugin {
     public string Name, Repo, Description, Dll, Help;
     public CheckBox Choice;
     public Label VersionLabel;
     public Label StatusLabel;
+    public bool Available=true;
 }
 class Release {
     public Plugin Plugin;
@@ -28,7 +29,7 @@ class Release {
     public long Size;
 }
 static class Program {
-    public const string AppVersion="1.1.11";
+    public const string AppVersion="1.1.12";
     static readonly Plugin Self=new Plugin { Name="OBSChzzk",Repo="OBSChzzk" };
     static string SkipFile { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"OBSChzzk","skipped-installer-version.txt"); } }
     public static bool ShouldOfferUpdate(string current,string latest,string skipped) {
@@ -127,10 +128,11 @@ static class Program {
         }
     }
     static void SetStatus(Plugin plugin, string text) {
+        if(!plugin.Available) text="사용 불가";
         plugin.StatusLabel.Text=text;
         plugin.StatusLabel.ForeColor=text=="완료" ? System.Drawing.Color.DarkGreen :
             text=="실패" ? System.Drawing.Color.Firebrick :
-            text=="선택 안 함" || text=="중단됨" ? System.Drawing.Color.DimGray : System.Drawing.Color.RoyalBlue;
+            text=="선택 안 함" || text=="중단됨" || text=="사용 불가" ? System.Drawing.Color.DimGray : System.Drawing.Color.RoyalBlue;
     }
     static readonly Plugin[] Plugins = {
         new Plugin { Name="OBSChzzkLiveEditor", Repo="OBSChzzkLiveEditor-Releases", Description="OBS 도크에서 치지직 방송 제목·카테고리·태그를 수정합니다.", Dll="OBSChzzkLiveEditor.dll", Help="LiveEditor: OBS 도크 메뉴에서 열고 로그인하세요." },
@@ -247,6 +249,9 @@ static class Program {
         string comparison=CompareVersions("33.0.0",version ?? "");
         return comparison=="최신 버전" || comparison=="업데이트 가능";
     }
+    public static bool IsPluginAvailable(Plugin plugin,string obsVersion) {
+        return plugin.Name!="OBSChzzkLiveEditor" || SupportsObs33(obsVersion);
+    }
     static void CheckRequirements(Release release,string obs) {
         if(!RequiresObs33(release)) return;
         var info=FileVersionInfo.GetVersionInfo(Path.Combine(obs,@"bin\64bit\obs64.exe"));
@@ -330,23 +335,30 @@ static class Program {
             } catch (Exception ex) { File.WriteAllText(Path.Combine(args[1],"error.txt"),ex.ToString()); return 1; }
         }
         Application.EnableVisualStyles();
+        string obsVersion=null;
+        try { obsVersion=FileVersionInfo.GetVersionInfo(Path.Combine(Detect(),@"bin\64bit\obs64.exe")).FileVersion; } catch { }
         var form=new Form { Text="OBSChzzk 통합 설치 "+AppVersion, ClientSize=new System.Drawing.Size(680,610), StartPosition=FormStartPosition.CenterScreen, FormBorderStyle=FormBorderStyle.FixedDialog, MaximizeBox=false, AutoScaleMode=AutoScaleMode.Dpi };
         form.Controls.Add(new Label { Left=22,Top=18,Width=635,Height=40,Text="원하는 플러그인을 선택하세요. 설치할 때 GitHub의 최신 정식 버전을 받습니다." });
         for (int i=0;i<Plugins.Length;i++) {
             var plugin=Plugins[i]; int y=65+i*86;
-            plugin.Choice=new CheckBox { Left=24,Top=y,Width=290,Height=25,Text=plugin.Name,Checked=true };
+            plugin.Available=IsPluginAvailable(plugin,obsVersion);
+            plugin.Choice=new CheckBox { Left=24,Top=y,Width=290,Height=25,Text=plugin.Name,Checked=plugin.Available,Enabled=plugin.Available };
             plugin.VersionLabel=new Label { Left=335,Top=y,Width=320,Height=43,Text="버전 확인 대기" };
             plugin.StatusLabel=new Label { Left=44,Top=y+26,Width=280,Height=20,Text="선택됨",ForeColor=System.Drawing.Color.RoyalBlue };
             plugin.Choice.CheckedChanged += (s,e) => SetStatus(plugin,plugin.Choice.Checked?"선택됨":"선택 안 함");
+            SetStatus(plugin,plugin.Choice.Checked?"선택됨":"선택 안 함");
             form.Controls.Add(plugin.Choice); form.Controls.Add(plugin.VersionLabel);
             form.Controls.Add(plugin.StatusLabel);
-            form.Controls.Add(new Label { Left=44,Top=y+46,Width=610,Height=34,Text=plugin.Description });
+            form.Controls.Add(new Label { Left=44,Top=y+46,Width=610,Height=20,Text=plugin.Description });
+            if(plugin.Name=="OBSChzzkLiveEditor") form.Controls.Add(new Label { Left=44,Top=y+66,Width=610,Height=18,
+                Text="OBS Studio 33.0.0 이상이 필요합니다. (현재 OBS: "+(obsVersion ?? "확인 불가")+")",
+                ForeColor=plugin.Available?System.Drawing.Color.DimGray:System.Drawing.Color.Firebrick });
         }
         var status=new TextBox { Left=24,Top=330,Width=630,Height=200,Multiline=true,ReadOnly=true,ScrollBars=ScrollBars.Vertical,Text="OBS와 치지직 리모컨을 종료하세요.\r\n인터넷 연결이 필요합니다. 정식 설치된 OBS 경로를 자동으로 사용합니다." };
         var install=new Button { Text="선택한 플러그인 설치",Left=424,Top=553,Width=230,Height=36 };
         form.Controls.Add(status); form.Controls.Add(install);
         bool busy=false, done=false;
-        Action<bool> setBusy=value => { busy=value; install.Enabled=!value; foreach (var plugin in Plugins) plugin.Choice.Enabled=!value; };
+        Action<bool> setBusy=value => { busy=value; install.Enabled=!value; foreach (var plugin in Plugins) plugin.Choice.Enabled=!value && plugin.Available; };
         Action<string> append=message => status.AppendText("\r\n" + message);
         Func<Task> refreshVersions=async () => {
             setBusy(true);
@@ -383,7 +395,7 @@ static class Program {
         form.FormClosing += (s,e) => { if (busy) e.Cancel=true; };
         install.Click += async (s,e) => {
             if (done) { form.Close(); return; }
-            var selected=Plugins.Where(p=>p.Choice.Checked).ToArray();
+            var selected=Plugins.Where(p=>p.Available && p.Choice.Checked).ToArray();
             if (selected.Length == 0) { status.Text="설치할 플러그인을 하나 이상 선택하세요."; return; }
             setBusy(true);
             foreach (var plugin in Plugins) SetStatus(plugin,plugin.Choice.Checked?"대기 중":"선택 안 함");

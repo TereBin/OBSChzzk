@@ -13,6 +13,11 @@ static class Tests {
     }
     static int Check() {
         var editor=new Plugin {Name="OBSChzzkLiveEditor",Dll="OBSChzzkLiveEditor.dll"};
+        if(Program.IsPluginAvailable(editor,"32.2.2") || Program.IsPluginAvailable(editor,null) ||
+           !Program.IsPluginAvailable(editor,"33.0.0") || !Program.IsPluginAvailable(editor,"34.0.1") ||
+           !Program.IsPluginAvailable(new Plugin {Name="OBSChzzkEvent"},"32.2.2") ||
+           !Program.IsPluginAvailable(new Plugin {Name="OBSChzzkPing"},null)) throw new Exception("Plugin availability failed");
+        Console.WriteLine("PASS: LiveEditor availability on OBS 32/33/34/unknown; Event/Ping unaffected");
         if(!Program.RequiresObs33(new Release {Plugin=editor,Tag="v0.4.0"}) || Program.RequiresObs33(new Release {Plugin=editor,Tag="v0.3.6"}) ||
             Program.SupportsObs33("32.2.2") || !Program.SupportsObs33("33.0.0.0") || !Program.SupportsObs33("34.0.1") || Program.SupportsObs33(null)) throw new Exception("OBS requirements failed");
         string pathsRoot=Path.Combine(Path.GetTempPath(),"OBSChzzk-path-test-"+Guid.NewGuid().ToString("N"));

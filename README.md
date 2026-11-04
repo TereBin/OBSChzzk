@@ -42,25 +42,25 @@ LiveEditor의 로그인과 Ping의 채널·알림 설정도 설치 후 진행해
 - 인터넷 연결 및 설치 시 관리자 권한
 - 각 플러그인의 추가 요구 사항은 위 사용 설명서 참고
 
-**LiveEditor 0.4.0 이상을 선택하려면 OBS Studio 33.0.0 이상이 필요합니다.** 조건을 충족하지 않으면 설치를 시작하기 전에 안내합니다. LiveEditor를 선택하지 않으면 이 요구 사항은 적용하지 않습니다.
+**LiveEditor 0.4.0 이상을 선택하려면 OBS Studio 33.0.0 이상이 필요합니다.** 프로그램 시작 시 OBS 버전을 확인하며, OBS 33 미만이거나 버전을 확인할 수 없으면 LiveEditor 체크박스를 해제하고 비활성화합니다. 상태는 **사용 불가**로 표시하고 설명 아래에 필요한 OBS 버전과 현재 확인한 버전을 안내합니다. Event와 Ping의 선택에는 이 제한을 적용하지 않습니다. OBS를 업데이트했다면 통합 설치 프로그램을 다시 실행해 주세요.
 
 현재 통합 설치 프로그램은 **포터블 OBS와 OBS 폴더 수동 선택을 지원하지 않습니다.**
 해당 환경에서는 각 플러그인의 개별 배포판을 이용해 주세요.
 
 ## 다운로드
 
-현재 통합 설치 프로그램 버전은 **1.1.11**입니다.
+현재 통합 설치 프로그램 버전은 **1.1.12**입니다.
 설치되는 각 플러그인의 버전은 실행 시 확인한 최신 정식 버전입니다.
 
-- [Windows x64 설치 파일 바로 다운로드](https://github.com/TereBin/OBSChzzk/releases/download/v1.1.11/OBSChzzk-1.1.11-windows-x64-setup.exe)
+- [Windows x64 설치 파일 바로 다운로드](https://github.com/TereBin/OBSChzzk/releases/download/v1.1.12/OBSChzzk-1.1.12-windows-x64-setup.exe)
 - [최신 릴리스와 변경 사항 보기](https://github.com/TereBin/OBSChzzk/releases/latest)
-- [SHA-256 체크섬 다운로드](https://github.com/TereBin/OBSChzzk/releases/download/v1.1.11/SHA256SUMS.txt)
+- [SHA-256 체크섬 다운로드](https://github.com/TereBin/OBSChzzk/releases/download/v1.1.12/SHA256SUMS.txt)
 
 설치 파일은 코드 서명되지 않아 Windows SmartScreen에 알 수 없는 게시자로 표시될 수 있습니다.
 공식 릴리스에서 받은 파일인지 확인하고, 아래 명령의 결과를 릴리스의 `SHA256SUMS.txt`와 비교할 수 있습니다.
 
 ```powershell
-Get-FileHash .\OBSChzzk-1.1.11-windows-x64-setup.exe -Algorithm SHA256
+Get-FileHash .\OBSChzzk-1.1.12-windows-x64-setup.exe -Algorithm SHA256
 ```
 
 ## 설치 및 업데이트
