@@ -2,16 +2,68 @@ using System;
 using System.Web.Script.Serialization;
 using System.IO;
 using System.Security.Cryptography;
+using System.Threading.Tasks;
+using System.Windows.Forms;
 static class Tests {
-    static string Json(string name, string digest, string url, bool prerelease) {
+    static string Json(string name, string digest, string url, bool prerelease,string assetUrl=null) {
         return new JavaScriptSerializer().Serialize(new { draft=false, prerelease=prerelease, tag_name="v1.2.3", assets=new [] {
-            new { name=name, digest=digest, browser_download_url=url, size=123 }
+            new { name=name, digest=digest, browser_download_url=url, size=123, url=assetUrl }
         }});
     }
     static int Main() {
         try { return Check(); } catch (Exception ex) { Console.WriteLine(ex.GetType().Name + ": " + ex.Message); return 1; }
     }
     static int Check() {
+        string downloadUrl="https://github.com/TereBin/OBSChzzkPing-Release/releases/download/v0.8.3/OBSChzzkPing-Setup.exe?download=1";
+        string freshA=Program.FreshDownloadUrl(downloadUrl),freshB=Program.FreshDownloadUrl(downloadUrl);
+        if(freshA==freshB || new Uri(freshA).GetLeftPart(UriPartial.Path)!=new Uri(downloadUrl).GetLeftPart(UriPartial.Path) || !new Uri(freshA).Query.Contains("download=1&obschzzk_request=")) throw new Exception("Fresh download request failed");
+        Console.WriteLine("PASS: fresh request identity, original official path and query preservation");
+        var visited=new System.Collections.Generic.List<int>();
+        var failedItems=new System.Collections.Generic.List<int>();
+        bool finished=Program.ProcessIndependently(new [] {0,1,2},item=> {
+            visited.Add(item);
+            if(item==0) throw new HttpFailure(504,"LiveEditor fixture");
+            return Task.FromResult(true);
+        },(item,ex)=>failedItems.Add(item)).GetAwaiter().GetResult();
+        if(!finished || visited.Count!=3 || failedItems.Count!=1 || failedItems[0]!=0) throw new Exception("Download failure blocked remaining plugins");
+        visited.Clear();failedItems.Clear();
+        finished=Program.ProcessIndependently(new [] {0,1,2},async item=> {
+            await Task.FromResult(0);
+            visited.Add(item);
+            if(item==1) throw new Exception("Installer failure fixture");
+            return true;
+        },(item,ex)=>failedItems.Add(item)).GetAwaiter().GetResult();
+        if(!finished || visited.Count!=3 || failedItems.Count!=1 || failedItems[0]!=1) throw new Exception("Install failure blocked remaining plugins");
+        visited.Clear();
+        finished=Program.ProcessIndependently(new [] {0,1,2},item=> {visited.Add(item);return Task.FromResult(false);},(item,ex)=>{throw new Exception("Cancellation treated as failure");}).GetAwaiter().GetResult();
+        if(finished || visited.Count!=1) throw new Exception("User exit must stop all remaining plugins");
+        Console.WriteLine("PASS: download/install failure isolation, remaining plugins continue, explicit user exit stops batch");
+        int attempts=0,waits=0;
+        var retried=Program.RetryNetwork(()=> {
+            if(++attempts<3) throw new HttpFailure(504,"https://github.com/test");
+            return Task.FromResult("ok");
+        },ms=>{waits++;return Task.FromResult(0);}).GetAwaiter().GetResult();
+        if(retried!="ok" || attempts!=3 || waits!=2) throw new Exception("504 retry recovery failed");
+        attempts=0;
+        try { Program.RetryNetwork<string>(()=>{attempts++;throw new HttpFailure(503,"test");},ms=>Task.FromResult(0)).GetAwaiter().GetResult(); } catch(HttpFailure) { }
+        if(attempts!=3) throw new Exception("Retry limit failed");
+        attempts=0;
+        try { Program.RetryNetwork<string>(()=>{attempts++;throw new HttpFailure(404,"test");},ms=>Task.FromResult(0)).GetAwaiter().GetResult(); } catch(HttpFailure) { }
+        if(attempts!=1 || Program.IsTransient(new HttpFailure(403,"test")) || Program.IsTransient(new Exception("Hash mismatch"))) throw new Exception("Permanent error retry policy failed");
+        Console.WriteLine("PASS: 504 recovery, bounded retries, permanent error and integrity failure exclusion");
+        int checks=0,prompts=0,closes=0,errors=0;
+        Action<Exception> onError=ex=>errors++;
+        if(!Program.WaitForObsExit(()=>false,()=>{prompts++;return DialogResult.Cancel;},()=>{closes++;return Task.FromResult(0);},onError).GetAwaiter().GetResult() || prompts!=0 || closes!=0) throw new Exception("Closed OBS gate failed");
+        if(Program.WaitForObsExit(()=>true,()=>DialogResult.Cancel,()=>Task.FromResult(0),onError).GetAwaiter().GetResult()) throw new Exception("Exit must stop installer");
+        checks=0;prompts=0;
+        if(!Program.WaitForObsExit(()=>++checks<=2,()=>{prompts++;return DialogResult.Retry;},()=>{throw new Exception("Continue must not terminate OBS");},onError).GetAwaiter().GetResult() || prompts!=2) throw new Exception("Continue recheck loop failed");
+        bool running=true;
+        if(!Program.WaitForObsExit(()=>running,()=>DialogResult.Yes,()=>{closes++;running=false;return Task.FromResult(0);},onError).GetAwaiter().GetResult() || closes!=1) throw new Exception("Close-and-continue failed");
+        prompts=0;
+        if(Program.WaitForObsExit(()=>true,()=>++prompts==1?DialogResult.Yes:DialogResult.Cancel,()=>{throw new Exception("Access denied fixture");},onError).GetAwaiter().GetResult() || errors!=1 || prompts!=2) throw new Exception("Termination failure must not advance");
+        prompts=0;
+        if(Program.WaitForObsExit(()=>true,()=>++prompts==1?DialogResult.Yes:DialogResult.Cancel,()=>Task.FromResult(0),onError).GetAwaiter().GetResult() || prompts!=2) throw new Exception("Successful close request must recheck actual process state");
+        Console.WriteLine("PASS: OBS gate, continue recheck, exit, explicit close, termination failure/still-running guard (no real OBS termination)");
         var editor=new Plugin {Name="OBSChzzkLiveEditor",Dll="OBSChzzkLiveEditor.dll"};
         if(Program.IsPluginAvailable(editor,"32.2.2") || Program.IsPluginAvailable(editor,null) ||
            !Program.IsPluginAvailable(editor,"33.0.0") || !Program.IsPluginAvailable(editor,"34.0.1") ||
@@ -87,8 +139,10 @@ static class Tests {
         }
         Console.WriteLine("PASS: stable and previous versioned installer asset names");
         var release=Program.ParseRelease(plugin,Json("OBSChzzkPing-Setup.exe",digest,url,false));
+        string assetUrl="https://api.github.com/repos/TereBin/OBSChzzkPing-Release/releases/assets/123";
+        if(Program.ParseRelease(plugin,Json("OBSChzzkPing-Setup.exe",digest,url,false,assetUrl)).AssetUrl!=assetUrl) throw new Exception("Official asset API route missing");
         if (release.Tag!="v1.2.3" || release.Size!=123 || release.Sha256.Length!=64) throw new Exception("Valid release failed");
-        string[] rejected={ Json("OBSChzzkPing-Setup.exe",null,url,false), Json("OBSChzzkPing-Setup.exe",digest,"https://example.com/setup.exe",false), Json("OBSChzzkPing-windows-x64.zip",digest,url,false), Json("OBSChzzkPing-Setup.exe",digest,url,true) };
+        string[] rejected={ Json("OBSChzzkPing-Setup.exe",digest,url,false,"https://api.github.com/repos/Other/Repo/releases/assets/123"), Json("OBSChzzkPing-Setup.exe",null,url,false), Json("OBSChzzkPing-Setup.exe",digest,"https://example.com/setup.exe",false), Json("OBSChzzkPing-windows-x64.zip",digest,url,false), Json("OBSChzzkPing-Setup.exe",digest,url,true) };
         foreach (string json in rejected) {
             bool failed=false;
             try { Program.ParseRelease(plugin,json); } catch { failed=true; }

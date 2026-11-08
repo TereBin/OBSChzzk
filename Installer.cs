@@ -12,9 +12,9 @@ using System.Windows.Forms;
 using Microsoft.Win32;
 using System.Reflection;
 
-[assembly: AssemblyVersion("1.1.13.0")]
-[assembly: AssemblyFileVersion("1.1.13.0")]
-[assembly: AssemblyInformationalVersion("1.1.13")]
+[assembly: AssemblyVersion("1.1.19.0")]
+[assembly: AssemblyFileVersion("1.1.19.0")]
+[assembly: AssemblyInformationalVersion("1.1.19")]
 
 class Plugin {
     public string Name, Repo, Description, Dll, Help;
@@ -25,11 +25,69 @@ class Plugin {
 }
 class Release {
     public Plugin Plugin;
-    public string Tag, Url, Sha256;
+    public string Tag, Url, Sha256, AssetUrl;
     public long Size;
 }
+class HttpFailure : HttpRequestException {
+    public readonly int Code;
+    public HttpFailure(int code,string url):base("HTTP "+code+": "+url) { Code=code; }
+}
 static class Program {
-    public const string AppVersion="1.1.13";
+    public static async Task<bool> ProcessIndependently<T>(IEnumerable<T> items,Func<T,Task<bool>> process,Action<T,Exception> failed) {
+        foreach(var item in items) {
+            try { if(!await process(item)) return false; }
+            catch(Exception ex) { failed(item,ex); }
+        }
+        return true;
+    }
+    static string NetworkLogPath;
+    static void NetworkLog(string message) {
+        try { if(NetworkLogPath!=null) File.AppendAllText(NetworkLogPath,DateTime.Now.ToString("O")+" "+message+Environment.NewLine); } catch { }
+    }
+    public static bool IsTransient(Exception ex) {
+        var http=ex as HttpFailure;
+        if(http!=null) return new [] {408,429,500,502,503,504}.Contains(http.Code);
+        return ex is HttpRequestException || ex is TaskCanceledException || ex is IOException;
+    }
+    public static async Task<T> RetryNetwork<T>(Func<Task<T>> operation,Func<int,Task> delay) {
+        for(int attempt=1;;attempt++) {
+            try { return await operation(); }
+            catch(Exception ex) {
+                NetworkLog("Attempt "+attempt+": "+ex.Message);
+                if(attempt>=3 || !IsTransient(ex)) throw;
+            }
+            await delay(attempt*1000);
+        }
+    }
+    public static string FreshDownloadUrl(string url) {
+        var builder=new UriBuilder(url);
+        builder.Query=(builder.Query.Length>1?builder.Query.Substring(1)+"&":"")+"obschzzk_request="+Guid.NewGuid().ToString("N");
+        return builder.Uri.AbsoluteUri;
+    }
+    static async Task<HttpResponseMessage> SendOnce(string url,bool freshDownload=false,bool binaryAsset=false) {
+        NetworkLog("GET "+url+(freshDownload?" (fresh download request)":""));
+        HttpResponseMessage response;
+        using(var request=new HttpRequestMessage(HttpMethod.Get,freshDownload?FreshDownloadUrl(url):url)) {
+            if(freshDownload) request.Headers.CacheControl=new System.Net.Http.Headers.CacheControlHeaderValue { NoCache=true,NoStore=true };
+            if(binaryAsset) request.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/octet-stream"));
+            response=await Client.SendAsync(request,HttpCompletionOption.ResponseHeadersRead);
+        }
+        if(!response.IsSuccessStatusCode) {
+            int code=(int)response.StatusCode;
+            response.Dispose();
+            throw new HttpFailure(code,url);
+        }
+        return response;
+    }
+    static Task<HttpResponseMessage> GetResponse(string url) {
+        return RetryNetwork(()=>SendOnce(url),ms=>Task.Delay(ms));
+    }
+    static Task<string> GetText(string url) {
+        return RetryNetwork(async ()=> {
+            using(var response=await SendOnce(url)) return await response.Content.ReadAsStringAsync();
+        },ms=>Task.Delay(ms));
+    }
+    public const string AppVersion="1.1.19";
     static readonly Plugin Self=new Plugin { Name="OBSChzzk",Repo="OBSChzzk" };
     static string SkipFile { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"OBSChzzk","skipped-installer-version.txt"); } }
     public static bool ShouldOfferUpdate(string current,string latest,string skipped) {
@@ -164,20 +222,24 @@ static class Program {
         string url = (string)asset["browser_download_url"];
         string prefix = "https://github.com/TereBin/" + plugin.Repo + "/releases/download/";
         if (!url.StartsWith(prefix, StringComparison.Ordinal)) throw new Exception("공식 저장소의 다운로드 주소가 아닙니다.");
-        return new Release { Plugin=plugin, Tag=(string)data["tag_name"], Url=url, Sha256=digest.Substring(7), Size=Convert.ToInt64(asset["size"]) };
+        string assetUrl=asset.ContainsKey("url")?asset["url"] as string:null;
+        if(assetUrl!=null && !System.Text.RegularExpressions.Regex.IsMatch(assetUrl,"^https://api\\.github\\.com/repos/TereBin/"+System.Text.RegularExpressions.Regex.Escape(plugin.Repo)+"/releases/assets/[0-9]+$"))
+            throw new Exception("공식 저장소의 자산 API 주소가 아닙니다.");
+        return new Release { Plugin=plugin, Tag=(string)data["tag_name"], Url=url, AssetUrl=assetUrl, Sha256=digest.Substring(7), Size=Convert.ToInt64(asset["size"]) };
     }
     static async Task<Release> Latest(Plugin plugin) {
         Release cached;
         if (Releases.TryGetValue(plugin.Repo,out cached)) return cached;
         if (!useReleasePages) {
-            using (var response=await Client.GetAsync("https://api.github.com/repos/TereBin/"+plugin.Repo+"/releases/latest")) {
-                if ((int)response.StatusCode==403 || (int)response.StatusCode==429) useReleasePages=true;
-                else {
-                    response.EnsureSuccessStatusCode();
-                    cached=ParseRelease(plugin,await response.Content.ReadAsStringAsync());
-                    Releases[plugin.Repo]=cached;
-                    return cached;
-                }
+            try {
+                cached=ParseRelease(plugin,await GetText("https://api.github.com/repos/TereBin/"+plugin.Repo+"/releases/latest"));
+                Releases[plugin.Repo]=cached;
+                return cached;
+            } catch(Exception ex) {
+                var http=ex as HttpFailure;
+                if(!IsTransient(ex) && !(http!=null && http.Code==403)) throw;
+                useReleasePages=true;
+                NetworkLog("API unavailable; falling back to official release page: "+plugin.Name);
             }
         }
         cached=await LatestFromPage(plugin);
@@ -187,14 +249,13 @@ static class Program {
     static async Task<Release> LatestFromPage(Plugin plugin) {
         string root="https://github.com/TereBin/"+plugin.Repo;
         string tag;
-        using (var response=await Client.GetAsync(root+"/releases/latest",HttpCompletionOption.ResponseHeadersRead)) {
-            response.EnsureSuccessStatusCode();
+        using (var response=await GetResponse(root+"/releases/latest")) {
             string target=response.RequestMessage.RequestUri.AbsoluteUri;
             string prefix=root+"/releases/tag/";
             if (!target.StartsWith(prefix,StringComparison.Ordinal)) throw new Exception("최신 릴리스 주소를 확인할 수 없습니다.");
             tag=Uri.UnescapeDataString(target.Substring(prefix.Length));
         }
-        string html=await Client.GetStringAsync(root+"/releases/expanded_assets/"+Uri.EscapeDataString(tag));
+        string html=await GetText(root+"/releases/expanded_assets/"+Uri.EscapeDataString(tag));
         string assetPrefix="/TereBin/"+plugin.Repo+"/releases/download/";
         var urls=System.Text.RegularExpressions.Regex.Matches(html,"href=\"([^\"]+)\"").Cast<System.Text.RegularExpressions.Match>()
             .Select(m=>WebUtility.HtmlDecode(m.Groups[1].Value)).Where(u=>u.StartsWith(assetPrefix,StringComparison.Ordinal))
@@ -203,7 +264,7 @@ static class Program {
         var sums=urls.Where(u=>u.EndsWith("/SHA256SUMS.txt",StringComparison.Ordinal)).ToArray();
         if (setups.Length!=1 || sums.Length!=1) throw new Exception(plugin.Name+": 공식 설치 EXE 또는 체크섬 파일을 확인할 수 없습니다.");
         string name=Uri.UnescapeDataString(new Uri(setups[0]).Segments.Last());
-        string checksums=await Client.GetStringAsync(sums[0]);
+        string checksums=await GetText(sums[0]);
         string hash=null;
         foreach (var line in checksums.Split('\n')) {
             var match=System.Text.RegularExpressions.Regex.Match(line.Trim(),@"^([a-fA-F0-9]{64})\s+\*?(.+)$");
@@ -218,10 +279,34 @@ static class Program {
     }
     static async Task<string> Download(Release release, string folder) {
         var file = Path.Combine(folder, release.Plugin.Name + "-setup.exe");
-        using (var response = await Client.GetAsync(release.Url, HttpCompletionOption.ResponseHeadersRead)) {
-            response.EnsureSuccessStatusCode();
-            using (var input = await response.Content.ReadAsStreamAsync())
-            using (var output = File.Create(file)) await input.CopyToAsync(output);
+        string downloadUrl=release.AssetUrl ?? release.Url;
+        Exception primaryError=null;
+        try {
+            await RetryNetwork(async ()=> {
+                using(var response=await SendOnce(downloadUrl,true,release.AssetUrl!=null))
+                using(var input=await response.Content.ReadAsStreamAsync())
+                using(var output=File.Create(file)) await input.CopyToAsync(output);
+                return true;
+            },ms=>Task.Delay(ms));
+        } catch(Exception ex) {
+            if(!IsTransient(ex)) throw;
+            primaryError=ex;
+        }
+        if(primaryError!=null) {
+            NetworkLog("Primary download failed; trying Windows curl: "+release.Plugin.Name);
+            await Task.Run(()=> {
+                string curl=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"curl.exe");
+                if(!File.Exists(curl)) throw new Exception("기본 다운로드 실패 및 Windows 대체 다운로드 도구 없음: "+primaryError.Message,primaryError);
+                string accept=release.AssetUrl!=null?" --header \"Accept: application/octet-stream\"":"";
+                var start=new ProcessStartInfo(curl,"--fail --location --silent --show-error --proto =https --proto-redir =https --connect-timeout 20 --max-time 120"+accept+" --output \""+file+"\" \""+FreshDownloadUrl(downloadUrl)+"\"") {
+                    UseShellExecute=false,CreateNoWindow=true,WindowStyle=ProcessWindowStyle.Hidden,RedirectStandardError=true
+                };
+                using(var process=Process.Start(start)) {
+                    string error=process.StandardError.ReadToEnd();
+                    process.WaitForExit();
+                    if(process.ExitCode!=0) throw new Exception("Windows 대체 다운로드도 실패했습니다 ("+process.ExitCode+"): "+error.Trim());
+                }
+            });
         }
         if ((release.Size>=0 && new FileInfo(file).Length != release.Size) || !Hash(file).Equals(release.Sha256, StringComparison.OrdinalIgnoreCase))
             throw new Exception(release.Plugin.Name + ": 다운로드 무결성 검사 실패. 설치를 중단합니다.");
@@ -304,8 +389,81 @@ static class Program {
         if (IsObs(fallback)) return fallback;
         throw new Exception("정식 설치된 64비트 OBS Studio를 찾지 못했습니다. 포터블 OBS는 지원하지 않습니다.");
     }
+    static Process[] GetObsProcesses() {
+        return Process.GetProcessesByName("obs64").Concat(Process.GetProcessesByName("obs32")).ToArray();
+    }
+    static bool IsObsRunning() {
+        var processes=GetObsProcesses();
+        try { return processes.Any(p=>!p.HasExited); }
+        finally { foreach(var process in processes) process.Dispose(); }
+    }
     static void CheckObsClosed() {
-        if (Process.GetProcessesByName("obs64").Length != 0) throw new Exception("OBS Studio를 완전히 종료한 후 다시 설치하세요.");
+        if(IsObsRunning()) throw new Exception("OBS Studio를 완전히 종료한 후 다시 설치하세요.");
+    }
+    public static async Task<bool> WaitForObsExit(Func<bool> isRunning,Func<DialogResult> prompt,Func<Task> closeObs,Action<Exception> showError) {
+        while(isRunning()) {
+            var choice=prompt();
+            if(choice==DialogResult.Cancel || choice==DialogResult.None) return false;
+            if(choice==DialogResult.Yes) {
+                try { await closeObs(); }
+                catch(Exception ex) { showError(ex); }
+            }
+            // Continue always rechecks. Never advance based only on a button or close request.
+        }
+        return true;
+    }
+    static DialogResult AskObsRunning(Form owner) {
+        using(var dialog=new Form { Text="OBS Studio가 실행 중입니다",ClientSize=new System.Drawing.Size(640,250),StartPosition=FormStartPosition.CenterParent,FormBorderStyle=FormBorderStyle.FixedDialog,MaximizeBox=false,MinimizeBox=false,AutoScaleMode=AutoScaleMode.Dpi }) {
+            dialog.Controls.Add(new Label { Left=20,Top=20,Width=600,Height=160,
+                Text="계속하려면 OBS Studio를 종료해야 합니다.\r\n\r\n• 계속: OBS 실행 여부를 다시 확인합니다.\r\n• 종료: 통합 설치 프로그램을 종료합니다.\r\n• OBS 종료 후 계속: 프로그램이 OBS를 종료하고 다시 확인합니다.\r\n\r\nOBS 종료 시 방송·녹화가 중단됩니다. 먼저 작업을 저장하세요.\r\n정상 종료에 응답하지 않으면 강제 종료하여 녹화가 손상될 수 있습니다." });
+            string[] labels={"계속","종료","OBS 종료 후 계속"};
+            DialogResult[] results={DialogResult.Retry,DialogResult.Cancel,DialogResult.Yes};
+            for(int i=0;i<labels.Length;i++) {
+                var button=new Button { Text=labels[i],Left=20+i*205,Top=195,Width=190,Height=38,DialogResult=results[i] };
+                dialog.Controls.Add(button);
+                if(i==1) dialog.CancelButton=button;
+            }
+            return dialog.ShowDialog(owner);
+        }
+    }
+    static async Task CloseObsProcesses() {
+        var processes=GetObsProcesses();
+        try {
+            await Task.WhenAll(processes.Select(process=>Task.Run(()=> {
+                if(process.HasExited) return;
+                process.CloseMainWindow();
+                if(process.WaitForExit(5000)) return;
+                if(!process.HasExited) process.Kill();
+                if(!process.WaitForExit(5000)) throw new Exception("OBS 종료 대기 시간이 초과되었습니다.");
+            })));
+        } finally { foreach(var process in processes) process.Dispose(); }
+    }
+    static async Task<bool> EnsureObsClosed(Form owner) {
+        try {
+            return await WaitForObsExit(IsObsRunning,()=>AskObsRunning(owner),CloseObsProcesses,
+                ex=>MessageBox.Show(owner,"OBS를 종료하지 못했습니다. OBS를 직접 종료한 뒤 '계속'을 누르세요.\r\n\r\n"+ex.Message,"OBS 종료 실패",MessageBoxButtons.OK,MessageBoxIcon.Information));
+        } catch(Exception ex) {
+            MessageBox.Show(owner,"OBS 실행 여부를 확인하지 못해 프로그램을 종료합니다.\r\n\r\n"+ex.Message,"OBS 확인 실패",MessageBoxButtons.OK,MessageBoxIcon.Error);
+            return false;
+        }
+    }
+    static bool ShowWelcome() {
+        using(var welcome=new Form { Text="OBSChzzk 통합 설치 안내",ClientSize=new System.Drawing.Size(660,430),StartPosition=FormStartPosition.CenterScreen,FormBorderStyle=FormBorderStyle.FixedDialog,MaximizeBox=false,MinimizeBox=false,AutoScaleMode=AutoScaleMode.Dpi }) {
+            welcome.Controls.Add(new Label { Left=24,Top=24,Width=610,Height=34,Text="OBSChzzk 통합 설치에 오신 것을 환영합니다.",Font=new System.Drawing.Font(System.Drawing.SystemFonts.MessageBoxFont.FontFamily,14,System.Drawing.FontStyle.Bold) });
+            welcome.Controls.Add(new Label { Left=24,Top=72,Width=610,Height=48,
+                Text="OBS에서 치지직 방송에 사용할 플러그인을 선택해 설치·업데이트하는 프로그램입니다.\r\n아래 세 플러그인 중 원하는 항목만 골라 최신 정식 버전으로 설치할 수 있습니다." });
+            for(int i=0;i<Plugins.Length;i++) {
+                var plugin=Plugins[i];
+                welcome.Controls.Add(new Label { Left=32,Top=132+i*54,Width=595,Height=48,Text=plugin.Name+"\r\n"+plugin.Description });
+            }
+            welcome.Controls.Add(new Label { Left=24,Top=300,Width=610,Height=44,
+                Text="Event는 브라우저 확장 설치가, LiveEditor는 OBS 33 이상이 필요합니다.\r\n계속을 누르면 OBS 실행 확인 → 버전 확인 → 플러그인 선택 순서로 진행합니다." });
+            var proceed=new Button { Left=446,Top=355,Width=190,Height=38,Text="계속",DialogResult=DialogResult.OK };
+            welcome.Controls.Add(proceed);
+            welcome.AcceptButton=proceed;
+            welcome.Controls.Add(new Label { Left=24,Top=403,Width=610,Height=20,Text="현재 버전: "+AppVersion,ForeColor=System.Drawing.Color.DimGray });
+            return welcome.ShowDialog()==DialogResult.OK;
+        }
     }
     static void Run(string file, string log, string obs, Release release) {
         var plugin=release.Plugin;
@@ -326,15 +484,23 @@ static class Program {
             useReleasePages=args[0]=="--check-web-downloads";
             try {
                 Directory.CreateDirectory(args[1]);
+                NetworkLogPath=Path.Combine(args[1],"network.log");
+                bool anyFailed=false;
                 foreach (var plugin in Plugins) {
-                    var release=Latest(plugin).GetAwaiter().GetResult();
-                    var file=Download(release,args[1]).GetAwaiter().GetResult();
-                    File.WriteAllText(file + ".verified.txt", release.Tag + "\n" + release.Url + "\n" + Hash(file));
+                    try {
+                        var release=Latest(plugin).GetAwaiter().GetResult();
+                        var file=Download(release,args[1]).GetAwaiter().GetResult();
+                        File.WriteAllText(file + ".verified.txt", release.Tag + "\n" + release.Url + "\n" + Hash(file));
+                    } catch(Exception ex) {
+                        anyFailed=true;
+                        File.WriteAllText(Path.Combine(args[1],plugin.Name+"-error.txt"),ex.ToString());
+                    }
                 }
-                return 0;
+                return anyFailed?1:0;
             } catch (Exception ex) { File.WriteAllText(Path.Combine(args[1],"error.txt"),ex.ToString()); return 1; }
         }
         Application.EnableVisualStyles();
+        if(!ShowWelcome()) return 0;
         string obsVersion=null;
         try { obsVersion=FileVersionInfo.GetVersionInfo(Path.Combine(Detect(),@"bin\64bit\obs64.exe")).FileVersion; } catch { }
         var form=new Form { Text="OBSChzzk 통합 설치", ClientSize=new System.Drawing.Size(680,630), StartPosition=FormStartPosition.CenterScreen, FormBorderStyle=FormBorderStyle.FixedDialog, MaximizeBox=false, AutoScaleMode=AutoScaleMode.Dpi };
@@ -390,6 +556,7 @@ static class Program {
         };
         form.Shown += async (s,e) => {
             setBusy(true);
+            if(!await EnsureObsClosed(form)) { busy=false; form.Close(); return; }
             if(await CheckSelfUpdate(form,status)) { busy=false; form.Close(); return; }
             await refreshVersions();
         };
@@ -399,15 +566,18 @@ static class Program {
             var selected=Plugins.Where(p=>p.Available && p.Choice.Checked).ToArray();
             if (selected.Length == 0) { status.Text="설치할 플러그인을 하나 이상 선택하세요."; return; }
             setBusy(true);
+            if(!await EnsureObsClosed(form)) { busy=false; form.Close(); return; }
             foreach (var plugin in Plugins) SetStatus(plugin,plugin.Choice.Checked?"대기 중":"선택 안 함");
             Plugin active=null;
             string folder=Path.Combine(Path.GetTempPath(),"OBSChzzk-"+Guid.NewGuid().ToString("N"));
             string logs=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"OBSChzzk","Logs",DateTime.Now.ToString("yyyyMMdd-HHmmss")+"-"+Guid.NewGuid().ToString("N").Substring(0,8));
             try {
                 string obs=Detect(); CheckObsClosed(); Directory.CreateDirectory(folder); Directory.CreateDirectory(logs);
+                NetworkLogPath=Path.Combine(logs,"network.log");
                 status.Text="OBS: " + obs;
-                var packages=new List<Tuple<Release,string>>();
-                foreach (var plugin in selected) {
+                var completed=new List<Plugin>();
+                var failures=new List<Plugin>();
+                bool proceed=await ProcessIndependently(selected,async plugin=> {
                     active=plugin;
                     SetStatus(plugin,"릴리스 확인 중...");
                     append(plugin.Name+": 최신 릴리스 확인 중...");
@@ -416,28 +586,34 @@ static class Program {
                     append(plugin.Name+" "+release.Tag+": 다운로드 및 SHA-256 확인 중...");
                     SetStatus(plugin,"다운로드·검증 중...");
                     var file=await Download(release,folder);
-                    packages.Add(Tuple.Create(release,file));
+                    File.AppendAllText(Path.Combine(logs,"releases.txt"),plugin.Name+" "+release.Tag+" "+release.Sha256+" "+release.Url+Environment.NewLine);
                     SetStatus(plugin,"설치 대기");
-                }
-                active=null;
-                File.WriteAllLines(Path.Combine(logs,"releases.txt"),packages.Select(p=>p.Item1.Plugin.Name+" "+p.Item1.Tag+" "+p.Item1.Sha256+" "+p.Item1.Url));
-                // Complete every selected download before changing the OBS installation.
-                foreach (var package in packages) {
-                    var plugin=package.Item1.Plugin;
-                    active=plugin;
+                    if(!await EnsureObsClosed(form)) return false;
                     SetStatus(plugin,"설치 중...");
                     append(plugin.Name+": 설치 중...");
-                    await Task.Run(()=>Run(package.Item2,Path.Combine(logs,plugin.Name+".log"),obs,package.Item1));
+                    await Task.Run(()=>Run(file,Path.Combine(logs,plugin.Name+".log"),obs,release));
                     append(plugin.Name+": 완료");
                     SetStatus(plugin,"완료");
+                    completed.Add(plugin);
                     active=null;
-                }
-                append("\r\n선택한 플러그인 설치가 완료되었습니다. OBS를 직접 실행하세요.");
-                foreach (var plugin in selected) append(plugin.Help);
-                var guides=new Panel { Left=22,Top=330,Width=635,Height=200 };
-                guides.Controls.Add(new Label { Left=2,Top=5,Width=625,Height=30,Text="설치 완료! OBS를 실행하기 전 사용 설명서(README)를 확인하세요." });
-                for (int i=0;i<selected.Length;i++) {
-                    var plugin=selected[i];
+                    return true;
+                },(plugin,ex)=> {
+                    string phase=plugin.StatusLabel.Text;
+                    failures.Add(plugin);
+                    try { File.WriteAllText(Path.Combine(logs,plugin.Name+"-error.txt"),phase+Environment.NewLine+ex.ToString()); } catch { }
+                    SetStatus(plugin,"실패");
+                    append(plugin.Name+" 실패 ["+phase+"]: "+ex.Message+"\r\n다음 플러그인을 계속 진행합니다.");
+                    active=null;
+                });
+                if(!proceed) { busy=false; form.Close(); return; }
+                append("\r\n설치 결과: 완료 "+completed.Count+"개 / 실패 "+failures.Count+"개");
+                if(failures.Count>0) append("실패한 플러그인: "+String.Join(", ",failures.Select(p=>p.Name))+"\r\n완료된 플러그인은 사용할 수 있습니다. 실패 항목만 나중에 다시 시도하세요.");
+                append("로그: "+logs);
+                foreach (var plugin in completed) append(plugin.Help);
+                var guides=new Panel { Dock=DockStyle.Fill,AutoScroll=true };
+                guides.Controls.Add(new Label { Left=2,Top=5,Width=595,Height=30,Text="설치 완료한 플러그인의 사용 설명서(README)를 확인하세요." });
+                for (int i=0;i<completed.Count;i++) {
+                    var plugin=completed[i];
                     string url="https://github.com/TereBin/"+plugin.Repo+"#readme";
                     var link=new LinkLabel { Left=4,Top=36+i*27,Width=625,Height=25,Text=plugin.Name+" 사용 설명서" };
                     link.Links.Clear();
@@ -452,9 +628,9 @@ static class Program {
                     };
                     guides.Controls.Add(link);
                 }
-                if (selected.Any(p=>p.Name=="OBSChzzkEvent")) {
+                if (completed.Any(p=>p.Name=="OBSChzzkEvent")) {
                     const string storeUrl="https://chromewebstore.google.com/detail/pakicliihbiimebagjgmmjkalfpejikc?hl=ko";
-                    int top=36+selected.Length*27;
+                    int top=36+completed.Count*27;
                     guides.Controls.Add(new Label { Left=4,Top=top,Width=625,Height=40,
                         Text="Event 확장은 Chrome/Edge에서 웹 스토어로 설치하세요. 이미 설치했다면 유지하세요.\r\n기존 개발자 모드 설치본은 비활성화하거나 제거하고 스토어 설치본만 사용하세요." });
                     var storeLink=new LinkLabel { Left=4,Top=top+41,Width=625,Height=40,
@@ -471,17 +647,30 @@ static class Program {
                     };
                     guides.Controls.Add(storeLink);
                 }
-                form.Controls.Add(guides); guides.BringToFront();
+                var tabs=new TabControl { Left=22,Top=330,Width=635,Height=205 };
+                var resultsTab=new TabPage("설치 결과");
+                resultsTab.Controls.Add(new TextBox { Dock=DockStyle.Fill,Multiline=true,ReadOnly=true,ScrollBars=ScrollBars.Vertical,Text=status.Text });
+                var guidesTab=new TabPage("사용 설명서");
+                guidesTab.Controls.Add(guides);
+                tabs.TabPages.Add(resultsTab);
+                if(completed.Count>0) tabs.TabPages.Add(guidesTab);
+                if(failures.Count==0 && completed.Count>0) tabs.SelectedTab=guidesTab;
+                form.Controls.Add(tabs); tabs.BringToFront();
                 done=true; install.Text="닫기";
             } catch (Exception ex) {
+                string phase=active==null?"사전 확인":active.Name+" / "+active.StatusLabel.Text;
+                try { Directory.CreateDirectory(logs); File.WriteAllText(Path.Combine(logs,"error.txt"),phase+Environment.NewLine+ex.ToString()); } catch { }
                 if (active!=null) SetStatus(active,"실패");
                 foreach (var plugin in selected)
                     if (plugin!=active && plugin.StatusLabel.Text!="완료") SetStatus(plugin,"중단됨");
-                append("설치를 완료하지 못했습니다: "+ex.Message);
+                append("설치를 완료하지 못했습니다 ["+phase+"]: "+ex.Message);
                 append("완료된 설치는 유지됩니다. 문제 해결 후 다시 실행하세요.\r\n로그: "+logs);
             } finally {
-                setBusy(false);
-                if (done) { foreach (var p in Plugins) p.Choice.Enabled=false; }
+                NetworkLogPath=null;
+                if(!form.IsDisposed) {
+                    setBusy(false);
+                    if (done) { foreach (var p in Plugins) p.Choice.Enabled=false; }
+                }
                 try { if (Directory.Exists(folder)) Directory.Delete(folder,true); } catch { }
             }
         };
